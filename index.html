@@ -92,7 +92,7 @@
     <h1>Trines Sim</h1>
     <button id="start-button" onclick="startMechanic()">Start Mechanic</button>
     <div id="grid"></div>
-    <p id="instructions" style="font-size: 18px; color: white;">Pick your path. Your first selection is where you will start and your third selection is where you will move to.</p>
+    <p id="instructions" style="font-size: 18px; color: white;">Pick your path. Your 1st selection is where you will start and your 2nd selection is where you will move to.</p>
     <button id="reset-button" onclick="resetCounter()">Reset Counter</button>
     <p>Correct Dodges: <span id="correct-count">0</span></p>
     <p>Incorrect Dodges: <span id="incorrect-count">0</span></p>
@@ -141,7 +141,7 @@
         }
 
         function startMechanic() {
-            instructionsText.innerText = 'Pick your path. Your first selection is where you will start and your third selection is where you will move to.';
+            instructionsText.innerText = 'Pick your path. Your 1st selection is where you will start and your 2nd selection is where you will move to.';
             resultText.innerText = '';
             selectedPath = [];
             interactionEnabled = false;
