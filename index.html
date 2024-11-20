@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trines Sim</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: Arial, sans-serif;
+            background-color: #1e1e2f;
+            color: white;
+            height: 100vh;
+            margin: 0;
+        }
+
+        #grid {
+            display: grid;
+            grid-template-columns: repeat(5, 50px);
+            grid-template-rows: repeat(5, 50px);
+            gap: 5px;
+            margin: 20px;
+            position: relative;
+        }
+
+        .cell {
+            width: 50px;
+            height: 50px;
+            background-color: #2c2c3c;
+            border: 1px solid #3a3a4c;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .cell:hover {
+            background-color: #3b3b4b;
+        }
+
+        .pattern {
+            position: absolute;
+            border-radius: 50%;
+            background-color: blue;
+            opacity: 0.8;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+
+        .selected {
+            border: 2px solid white;
+            z-index: 2;
+        }
+
+        #arrow {
+            position: absolute;
+            height: 2px;
+            background-color: white;
+            transform-origin: top left;
+            z-index: 3;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            border: none;
+            background-color: #007acc;
+            color: white;
+            cursor: pointer;
+            border-radius: 5px;
+        }
+
+        button:disabled {
+            background-color: #555;
+            cursor: not-allowed;
+        }
+
+        button:hover:not(:disabled) {
+            background-color: #005f99;
+        }
+    </style>
+</head>
+<body>
+    <h1>Trines Sim</h1>
+    <button id="start-button" onclick="startMechanic()">Start Mechanic</button>
+    <div id="grid"></div>
+    <p id="instructions" style="font-size: 18px; color: white;">Pick your path. Your 1st selection is where you will start and your 2nd selection is where you will move to.</p>
+    <button id="reset-button" onclick="resetCounter()">Reset Counter</button>
+    <p>Correct Dodges: <span id="correct-count">0</span></p>
+    <p>Incorrect Dodges: <span id="incorrect-count">0</span></p>
+    <p>Streak: <span id="streak-count">0</span></p>
+    <p id="result" style="font-size: 18px; color: white;"></p>
+    <div id="arrow"></div>
+
+    <script>
+        const grid = document.getElementById('grid');
+        const instructionsText = document.getElementById('instructions');
+        const resultText = document.getElementById('result');
+        const correctCountText = document.getElementById('correct-count');
+        const incorrectCountText = document.getElementById('incorrect-count');
+        const streakCountText = document.getElementById('streak-count');
+        const startButton = document.getElementById('start-button');
+        const arrowElement = document.getElementById('arrow');
+        let correctCount = 0;
+        let incorrectCount = 0;
+        let streakCount = 0;
+        let selectedPath = [];
+        let patternOrder = [];
+        let interactionEnabled = false;
+
+        const patterns = {
+            A: [0, 4, 8, 11, 12, 13, 16, 20, 24],
+            B: [2, 5, 6, 14, 15, 17, 21, 23],
+            C: [1, 3, 7, 9, 10, 18, 19, 22]
+        };
+
+        // Create the 5x5 grid
+        for (let i = 0; i < 25; i++) {
+            const cell = document.createElement('div');
+            cell.classList.add('cell');
+            cell.dataset.index = i;
+
+            // Add labels to specific squares
+            if (i === 12) cell.innerText = 'MID';
+            if (i === 13) cell.innerText = '1';
+            if (i === 17) cell.innerText = '3';
+            if (i === 18) cell.innerText = '4';
+
+            cell.addEventListener('click', () => handleCellClick(i, cell));
+            grid.appendChild(cell);
+        }
+
+        function startMechanic() {
+            instructionsText.innerText = 'Pick your path. Your 1st selection is where you will start and your 2nd selection is where you will move to.';
+            resultText.innerText = '';
+            selectedPath = [];
+            interactionEnabled = false;
+            startButton.disabled = true;
+
+            // Clear the grid
+            document.querySelectorAll('.cell').forEach(cell => {
+                cell.classList.remove('pattern', 'selected');
+                cell.innerHTML = cell.innerText;
+            });
+
+            // Hide arrow
+            arrowElement.style.display = 'none';
+
+            // Randomize the order of patterns
+            patternOrder = ['A', 'B', 'C'].sort(() => Math.random() - 0.5);
+
+            // Display patterns sequentially
+            let delay = 500;
+            patternOrder.forEach((pattern, index) => {
+                setTimeout(() => {
+                    if (index > 0) {
+                        document.querySelectorAll('.cell').forEach(cell => cell.innerHTML = cell.innerText);
+                    }
+
+                    patterns[pattern].forEach(index => {
+                        const cell = grid.children[index];
+                        const circle = document.createElement('div');
+                        circle.classList.add('pattern');
+                        cell.appendChild(circle);
+                    });
+
+                    if (index === 2) {
+                        interactionEnabled = true;
+                        startButton.disabled = false;
+                    }
+                }, delay);
+                delay += 2000;
+            });
+        }
+
+        function handleCellClick(index, cell) {
+            if (!interactionEnabled || selectedPath.length >= 2) return;
+
+            selectedPath.push(index);
+            cell.classList.add('selected');
+
+            if (selectedPath.length === 2) {
+                interactionEnabled = false;
+                drawArrow();
+                validateDodge();
+            }
+        }
+
+        function drawArrow() {
+            const startIndex = selectedPath[0];
+            const endIndex = selectedPath[1];
+
+            const startCell = grid.children[startIndex];
+            const endCell = grid.children[endIndex];
+
+            const startRect = startCell.getBoundingClientRect();
+            const endRect = endCell.getBoundingClientRect();
+
+            const startX = startRect.left + startRect.width / 2;
+            const startY = startRect.top + startRect.height / 2;
+            const endX = endRect.left + endRect.width / 2;
+            const endY = endRect.top + endRect.height / 2;
+
+            const deltaX = endX - startX;
+            const deltaY = endY - startY;
+            const length = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+            const angle = Math.atan2(deltaY, deltaX) * (180 / Math.PI);
+
+            arrowElement.style.display = 'block';
+            arrowElement.style.width = `${length}px`;
+            arrowElement.style.height = `2px`;
+            arrowElement.style.transform = `rotate(${angle}deg)`;
+            arrowElement.style.top = `${startY}px`;
+            arrowElement.style.left = `${startX}px`;
+        }
+
+        function validateDodge() {
+            const firstPattern = patternOrder[0];
+            const lastPattern = patternOrder[2];
+            const rowDiff = Math.abs(Math.floor(selectedPath[1] / 5) - Math.floor(selectedPath[0] / 5));
+            const colDiff = Math.abs((selectedPath[1] % 5) - (selectedPath[0] % 5));
+
+            // Check for diagonal dodge
+            if (rowDiff === 1 && colDiff === 1) {
+                resultText.innerText = 'You Died! Diagonal dodges are invalid.';
+                streakCount = 0;
+                incorrectCount++;
+                incorrectCountText.innerText = incorrectCount;
+                streakCountText.innerText = streakCount;
+                return;
+            }
+
+            if (patterns[lastPattern].includes(selectedPath[0]) && patterns[firstPattern].includes(selectedPath[1])) {
+                resultText.innerText = 'Success!';
+                correctCount++;
+                streakCount++;
+                correctCountText.innerText = correctCount;
+                streakCountText.innerText = streakCount;
+            } else {
+                resultText.innerText = 'You Died!';
+                streakCount = 0;
+                incorrectCount++;
+                incorrectCountText.innerText = incorrectCount;
+                streakCountText.innerText = streakCount;
+            }
+        }
+
+        function resetCounter() {
+            correctCount = 0;
+            incorrectCount = 0;
+            streakCount = 0;
+            correctCountText.innerText = correctCount;
+            incorrectCountText.innerText = incorrectCount;
+            streakCountText.innerText = streakCount;
+            resultText.innerText = 'Counters have been reset.';
+            setTimeout(() => {
+                resultText.innerText = '';
+            }, 1000);
+        }
+    </script>
+</body>
+</html>
