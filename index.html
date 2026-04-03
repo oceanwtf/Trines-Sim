@@ -12,8 +12,10 @@
             font-family: Arial, sans-serif;
             background-color: #1e1e2f;
             color: white;
-            height: 100vh;
+            min-height: 100vh;
             margin: 0;
+            padding: 20px 0;
+            box-sizing: border-box;
         }
 
         #grid {
@@ -43,6 +45,29 @@
             background-color: #3b3b4b;
         }
 
+        /* Valid cells highlighted when selection is active */
+        .cell.allowed-active {
+            border-color: #aaaaff;
+        }
+
+        .cell.allowed-active:hover {
+            background-color: #3b3b5b;
+        }
+
+        /* Cells outside the allowed area are dimmed during selection */
+        .cell.dimmed {
+            opacity: 0.35;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+
+        /* Keyboard navigation focus ring */
+        .cell.focused {
+            outline: 2px solid #ffcc00;
+            outline-offset: -2px;
+            z-index: 3;
+        }
+
         .pattern {
             position: absolute;
             border-radius: 50%;
@@ -56,38 +81,17 @@
         }
 
         .pattern.final {
-            animation: dropInFinal 1s ease-in-out forwards;
+            animation: dropIn 1s ease-in-out forwards;
         }
 
         @keyframes dropIn {
-            from {
-                top: -100px;
-                opacity: 0;
-            }
-            to {
-                top: 0;
-                opacity: 0.5;
-            }
+            from { top: -100px; opacity: 0; }
+            to   { top: 0;      opacity: 0.5; }
         }
 
         @keyframes fadeOut {
-            from {
-                opacity: 0.5;
-            }
-            to {
-                opacity: 0;
-            }
-        }
-
-        @keyframes dropInFinal {
-            from {
-                top: -100px;
-                opacity: 0;
-            }
-            to {
-                top: 0;
-                opacity: 0.5;
-            }
+            from { opacity: 0.5; }
+            to   { opacity: 0; }
         }
 
         .selected {
@@ -113,27 +117,72 @@
         button:hover:not(:disabled) {
             background-color: #005f99;
         }
+
+        #auto-repeat-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            margin-top: 8px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        #instructions {
+            font-size: 18px;
+        }
+
+        #pattern-order-reveal {
+            font-size: 14px;
+            color: #aaaacc;
+            min-height: 1.4em;
+            margin: 0;
+        }
+
+        #keyboard-hint {
+            font-size: 12px;
+            color: #666677;
+            margin: 4px 0 12px;
+        }
+
+        #result {
+            font-size: 18px;
+            min-height: 1.4em;
+            margin: 4px 0;
+        }
+
+        #result.success { color: #4caf50; }
+        #result.failure { color: #f44336; }
+        #result.info    { color: white; }
     </style>
 </head>
 <body>
     <h1>Trines Sim</h1>
     <button id="start-button" onclick="startMechanic()">Start Mechanic</button>
+    <label id="auto-repeat-label">
+        <input type="checkbox" id="auto-repeat"> Auto-repeat
+    </label>
     <div id="grid"></div>
-    <p id="instructions" style="font-size: 18px; color: white;">Pick your path. Your 1st selection is where you will start and your 2nd selection is where you will move to.</p>
+    <p id="instructions">Pick your path. Your 1st selection is where you will start and your 2nd selection is where you will move to.</p>
+    <p id="pattern-order-reveal"></p>
+    <p id="keyboard-hint">[Space] Start &nbsp;·&nbsp; [Arrow keys] Navigate &nbsp;·&nbsp; [Enter] Select</p>
     <button id="reset-button" onclick="resetCounter()">Reset Counter</button>
     <p>Correct Dodges: <span id="correct-count">0</span></p>
     <p>Incorrect Dodges: <span id="incorrect-count">0</span></p>
     <p>Streak: <span id="streak-count">0</span></p>
-    <p id="result" style="font-size: 18px; color: white;"></p>
+    <p id="result"></p>
 
     <script>
-        const grid = document.getElementById('grid');
+        const gridEl = document.getElementById('grid');
         const instructionsText = document.getElementById('instructions');
         const resultText = document.getElementById('result');
+        const patternOrderReveal = document.getElementById('pattern-order-reveal');
         const correctCountText = document.getElementById('correct-count');
         const incorrectCountText = document.getElementById('incorrect-count');
         const streakCountText = document.getElementById('streak-count');
         const startButton = document.getElementById('start-button');
+        const autoRepeatCheckbox = document.getElementById('auto-repeat');
+
         let correctCount = 0;
         let incorrectCount = 0;
         let streakCount = 0;
@@ -147,122 +196,169 @@
             C: [1, 3, 7, 9, 10, 18, 19, 22]
         };
 
-        const allowedGrid = [12, 13, 17, 18]; // MID, 1, 3, 4
+        // The 2x2 playable area using FFXIV positional markers:
+        //   MID(12)  1(13)
+        //    3(17)   4(18)
+        const allowedGrid = [12, 13, 17, 18];
 
-        // Create the 5x5 grid
+        // Arrow-key navigation map: allowedGrid index -> {key: next index}
+        const arrowNav = {
+            0: { ArrowRight: 1, ArrowDown: 2 },
+            1: { ArrowLeft: 0, ArrowDown: 3 },
+            2: { ArrowUp: 0,   ArrowRight: 3 },
+            3: { ArrowUp: 1,   ArrowLeft: 2 }
+        };
+
+        // Current keyboard focus position within allowedGrid (0–3)
+        let focusedAllowedIndex = 0;
+
+        // Build the 5x5 grid
         for (let i = 0; i < 25; i++) {
             const cell = document.createElement('div');
             cell.classList.add('cell');
             cell.dataset.index = i;
-
-            // Add labels to specific squares
             if (i === 12) cell.innerText = 'MID';
             if (i === 13) cell.innerText = '1';
             if (i === 17) cell.innerText = '3';
             if (i === 18) cell.innerText = '4';
+            cell.addEventListener('click', () => handleCellClick(i));
+            gridEl.appendChild(cell);
+        }
 
-            cell.addEventListener('click', () => handleCellClick(i, cell));
-            grid.appendChild(cell);
+        function clearPatternOverlays() {
+            gridEl.querySelectorAll('.pattern').forEach(el => el.remove());
         }
 
         function startMechanic() {
             instructionsText.innerText = 'Pick your path. Your 1st selection is where you will start and your 2nd selection is where you will move to.';
             resultText.innerText = '';
+            resultText.className = '';
+            patternOrderReveal.innerText = '';
             selectedPath = [];
             interactionEnabled = false;
             startButton.disabled = true;
+            focusedAllowedIndex = 0;
 
-            // Clear the grid
             document.querySelectorAll('.cell').forEach(cell => {
-                cell.classList.remove('pattern', 'selected');
-                cell.innerHTML = cell.innerText;
+                cell.classList.remove('selected', 'allowed-active', 'dimmed', 'focused');
             });
+            clearPatternOverlays();
 
-            // Randomize the order of patterns
             patternOrder = ['A', 'B', 'C'].sort(() => Math.random() - 0.5);
 
-            // Sequentially show patterns with animation
             let delay = 0;
             patternOrder.forEach((pattern, index) => {
+                const isFinal = index === patternOrder.length - 1;
                 setTimeout(() => {
-                    showPattern(pattern, index === patternOrder.length - 1);
-                    if (index === patternOrder.length - 1) {
+                    clearPatternOverlays();
+                    showPattern(pattern, isFinal);
+                    if (isFinal) {
                         setTimeout(() => {
                             interactionEnabled = true;
                             startButton.disabled = false;
-                        }, 1000); // Enable interaction after the final pattern animation ends
+                            applySelectionHighlight();
+                        }, 1000);
                     }
                 }, delay);
-                delay += 2000; // Wait for each pattern to fade out before showing the next
+                delay += 2000;
             });
         }
 
         function showPattern(pattern, isFinal) {
-            document.querySelectorAll('.cell').forEach(cell => {
-                cell.innerHTML = cell.innerText; // Clear previous patterns
-            });
-
             patterns[pattern].forEach(index => {
-                const cell = grid.children[index];
                 const circle = document.createElement('div');
                 circle.classList.add('pattern');
-                if (isFinal) {
-                    circle.classList.add('final'); // Final pattern does not fade out
-                }
-                cell.appendChild(circle);
+                if (isFinal) circle.classList.add('final');
+                gridEl.children[index].appendChild(circle);
             });
         }
 
-        function handleCellClick(index, cell) {
+        function applySelectionHighlight() {
+            document.querySelectorAll('.cell').forEach(cell => {
+                const idx = parseInt(cell.dataset.index);
+                if (allowedGrid.includes(idx)) {
+                    cell.classList.add('allowed-active');
+                    cell.classList.remove('dimmed');
+                } else {
+                    cell.classList.add('dimmed');
+                    cell.classList.remove('allowed-active');
+                }
+            });
+            updateKeyboardFocus();
+        }
+
+        function clearSelectionHighlight() {
+            document.querySelectorAll('.cell').forEach(cell => {
+                cell.classList.remove('allowed-active', 'dimmed', 'focused');
+            });
+        }
+
+        function updateKeyboardFocus() {
+            document.querySelectorAll('.cell').forEach(cell => cell.classList.remove('focused'));
+            if (interactionEnabled && selectedPath.length < 2) {
+                gridEl.children[allowedGrid[focusedAllowedIndex]].classList.add('focused');
+            }
+        }
+
+        function handleCellClick(index) {
             if (!interactionEnabled || selectedPath.length >= 2) return;
+            if (!allowedGrid.includes(index)) return;
 
             selectedPath.push(index);
-            cell.classList.add('selected');
+            gridEl.children[index].classList.add('selected');
+            focusedAllowedIndex = allowedGrid.indexOf(index);
 
             if (selectedPath.length === 2) {
                 interactionEnabled = false;
+                clearSelectionHighlight();
                 validateDodge();
+            } else {
+                updateKeyboardFocus();
+            }
+        }
+
+        function recordResult(success, message) {
+            resultText.innerText = message;
+            resultText.className = success ? 'success' : 'failure';
+
+            if (success) {
+                correctCount++;
+                streakCount++;
+            } else {
+                incorrectCount++;
+                streakCount = 0;
+            }
+
+            correctCountText.innerText = correctCount;
+            incorrectCountText.innerText = incorrectCount;
+            streakCountText.innerText = streakCount;
+            patternOrderReveal.innerText = `Pattern order was: ${patternOrder.join(' → ')}`;
+
+            if (autoRepeatCheckbox.checked) {
+                setTimeout(startMechanic, 1500);
             }
         }
 
         function validateDodge() {
             const firstPattern = patternOrder[0];
-            const lastPattern = patternOrder[2];
+            const lastPattern = patternOrder[patternOrder.length - 1];
             const rowDiff = Math.abs(Math.floor(selectedPath[1] / 5) - Math.floor(selectedPath[0] / 5));
             const colDiff = Math.abs((selectedPath[1] % 5) - (selectedPath[0] % 5));
 
-            // Check for diagonal dodge
             if (rowDiff === 1 && colDiff === 1) {
-                resultText.innerText = 'Diagonal dodges are invalid.';
-                streakCount = 0;
-                incorrectCount++;
-                incorrectCountText.innerText = incorrectCount;
-                streakCountText.innerText = streakCount;
+                recordResult(false, 'Diagonal dodges are invalid.');
                 return;
             }
 
-            // Check if both points are within the allowed 2x2 grid
             if (!allowedGrid.includes(selectedPath[0]) || !allowedGrid.includes(selectedPath[1])) {
-                resultText.innerText = 'You must stay within the markers to stay with your team.';
-                streakCount = 0;
-                incorrectCount++;
-                incorrectCountText.innerText = incorrectCount;
-                streakCountText.innerText = streakCount;
+                recordResult(false, 'You must stay within the markers to stay with your team.');
                 return;
             }
 
             if (patterns[lastPattern].includes(selectedPath[0]) && patterns[firstPattern].includes(selectedPath[1])) {
-                resultText.innerText = 'Success!';
-                correctCount++;
-                streakCount++;
-                correctCountText.innerText = correctCount;
-                streakCountText.innerText = streakCount;
+                recordResult(true, 'Success!');
             } else {
-                resultText.innerText = 'You Died!';
-                streakCount = 0;
-                incorrectCount++;
-                incorrectCountText.innerText = incorrectCount;
-                streakCountText.innerText = streakCount;
+                recordResult(false, 'You Died!');
             }
         }
 
@@ -270,14 +366,42 @@
             correctCount = 0;
             incorrectCount = 0;
             streakCount = 0;
-            correctCountText.innerText = correctCount;
-            incorrectCountText.innerText = incorrectCount;
-            streakCountText.innerText = streakCount;
+            correctCountText.innerText = 0;
+            incorrectCountText.innerText = 0;
+            streakCountText.innerText = 0;
             resultText.innerText = 'Counters have been reset.';
+            resultText.className = 'info';
             setTimeout(() => {
                 resultText.innerText = '';
+                resultText.className = '';
             }, 1000);
         }
+
+        // Keyboard support
+        document.addEventListener('keydown', e => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                if (!startButton.disabled) startMechanic();
+                return;
+            }
+
+            if (!interactionEnabled || selectedPath.length >= 2) return;
+
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+                e.preventDefault();
+                const next = arrowNav[focusedAllowedIndex]?.[e.key];
+                if (next !== undefined) {
+                    focusedAllowedIndex = next;
+                    updateKeyboardFocus();
+                }
+                return;
+            }
+
+            if (e.code === 'Enter' || e.code === 'NumpadEnter') {
+                e.preventDefault();
+                handleCellClick(allowedGrid[focusedAllowedIndex]);
+            }
+        });
     </script>
 </body>
 </html>
